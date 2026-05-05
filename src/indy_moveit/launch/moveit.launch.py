@@ -66,9 +66,12 @@ def launch_setup(context, *args, **kwargs):
     )
     robot_description_semantic = {"robot_description_semantic": robot_description_semantic_content}
 
-    robot_description_kinematics = PathJoinSubstitution(
-        [moveit_config_package, "moveit_config", "kinematics.yaml"]
-    )
+    kinematics_yaml = load_yaml("indy_moveit", "moveit_config/kinematics.yaml")
+    # Nếu kinematics.yaml có chứa thẻ '/**' và 'ros__parameters', ta lấy phần bên trong:
+    if '/**' in kinematics_yaml and 'ros__parameters' in kinematics_yaml['/**']:
+        robot_description_kinematics = kinematics_yaml['/**']['ros__parameters']
+    else:
+        robot_description_kinematics = {"robot_description_kinematics": kinematics_yaml.get("robot_description_kinematics", kinematics_yaml)}
     
     ompl_planning_pipeline_config = {
         "move_group": {
@@ -145,6 +148,7 @@ def launch_setup(context, *args, **kwargs):
             robot_description_semantic,
             ompl_planning_pipeline_config,
             robot_description_kinematics,
+            {"use_sim_time": use_sim_time},
         ],
     )
 
