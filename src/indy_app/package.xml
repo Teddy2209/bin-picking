@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>indy_app</name>
+  <version>0.0.0</version>
+  <description>Indy Robot Manager Application</description>
+  <maintainer email="apicoo@todo.todo">apicoo</maintainer>
+  <license>Apache License 2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>indy_interfaces</depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
