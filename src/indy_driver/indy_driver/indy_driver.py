@@ -4,7 +4,7 @@
 import json
 import math
 import time
-from neuromeka import IndyDCP3 
+from neuromeka import IndyDCP3, BlendingType
 from neuromeka import EtherCAT # for get/set servo rx and get servo tx
 
 import rclpy
@@ -145,7 +145,10 @@ class IndyROSConnector(Node):
         self.indy.stop_motion()
 
         if request.data == MSG_RECOVER:
-            self.indy.stop_teleop()
+            try:
+                self.indy.stop_teleop()
+            except Exception:
+                pass
             time.sleep(0.3)
             while self.indy.get_control_data()['op_state'] != OP_IDLE:
                 time.sleep(0.1)
@@ -153,7 +156,10 @@ class IndyROSConnector(Node):
             self.indy_msg_status = request.data
 
         elif request.data == MSG_MOVE_HOME:
-            self.indy.stop_teleop()
+            try:
+                self.indy.stop_teleop()
+            except Exception:
+                pass
             time.sleep(0.3)
             while self.indy.get_control_data()['op_state'] != OP_IDLE:
                 time.sleep(0.1)
@@ -163,7 +169,10 @@ class IndyROSConnector(Node):
 
             
         elif request.data == MSG_MOVE_ZERO:
-            self.indy.stop_teleop()
+            try:
+                self.indy.stop_teleop()
+            except Exception:
+                pass
             time.sleep(0.3)
             while self.indy.get_control_data()['op_state'] != OP_IDLE:
                 time.sleep(0.1)
@@ -172,7 +181,10 @@ class IndyROSConnector(Node):
             self.indy_msg_status = request.data
 
         elif request.data == MSG_TELE_STOP:
-            self.indy.stop_teleop()
+            try:
+                self.indy.stop_teleop()
+            except Exception:
+                pass
             time.sleep(0.3)
             while self.indy.get_control_data()['op_state'] != OP_IDLE:
                 time.sleep(0.1)
@@ -188,7 +200,10 @@ class IndyROSConnector(Node):
                 method = TELE_JOINT_RELATIVE
 
             # start teleop
-            self.indy.stop_teleop()
+            try:
+                self.indy.stop_teleop()
+            except Exception:
+                pass
             time.sleep(0.1)
             self.indy.start_teleop(method=method) 
             time.sleep(0.2)
@@ -215,7 +230,10 @@ class IndyROSConnector(Node):
         if msg.points:
             joint_state_list = [p.positions for p in msg.points]
         else:
-            self.indy.stop_motion()
+            try:
+                self.indy.stop_motion()
+            except Exception:
+                pass
         # print("joint state list: ", joint_state_list) #rad/s rad
         if self.previous_joint_trajectory_sub != joint_state_list[0]:
             # if TELE MODE
@@ -353,26 +371,48 @@ class IndyROSConnector(Node):
         # Do something for OP_IDLE state
         if self.joint_state_list:
             #-------------------------------------------------------
-            # start teleop
-            self.indy.stop_teleop()
-            time.sleep(0.1)
-            self.indy.start_teleop(method=TELE_JOINT_ABSOLUTE) 
-            time.sleep(0.2)
-
-            # wait for telemode actually start
-            cur_time = time.time()
-            while self.indy.get_control_data()['op_state'] != TELE_OP:
-                if (time.time() - cur_time) > 0.5:
-                    self.indy.start_teleop(method=TELE_JOINT_ABSOLUTE)  
-                    cur_time = time.time()
+            # Try to start teleop, if it fails, fallback to movej
+            use_teleop = True
+            try:
+                try:
+                    self.indy.stop_teleop()
+                except:
+                    pass
+                time.sleep(0.1)
+                self.indy.start_teleop(method=TELE_JOINT_ABSOLUTE) 
                 time.sleep(0.2)
+                
+                # wait for telemode actually start
+                cur_time = time.time()
+                while self.indy.get_control_data()['op_state'] != TELE_OP:
+                    if (time.time() - cur_time) > 0.5:
+                        self.indy.start_teleop(method=TELE_JOINT_ABSOLUTE)  
+                        cur_time = time.time()
+                    if (time.time() - cur_time) > 2.0: # Timeout
+                        raise Exception("Teleop start timeout")
+                    time.sleep(0.2)
+            except Exception as e:
+                self.get_logger().warn(f"Teleop not supported, falling back to movej: {e}")
+                use_teleop = False
+
+            # Tăng mật độ điểm lên (lấy mỗi điểm thứ 5) để né vật cản tốt hơn
+            if use_teleop:
+                execution_list = self.joint_state_list
+            else:
+                execution_list = self.joint_state_list[::5]
+                if not execution_list or execution_list[-1] != self.joint_state_list[-1]:
+                    execution_list.append(self.joint_state_list[-1])
 
             # send waypoints
-            for j_pos in self.joint_state_list:
+            for j_pos in execution_list:
                 try:
-                    self.indy.movetelej_abs(jpos=rads2degs(j_pos), vel_ratio=0.8, acc_ratio=7.0)
+                    if use_teleop:
+                        self.indy.movetelej_abs(jpos=rads2degs(j_pos), vel_ratio=0.8, acc_ratio=7.0)
+                    else:
+                        # Dùng DUPLICATE + blending_radius để bo tròn quỹ đạo né vật cản
+                        self.indy.movej(jtarget=rads2degs(j_pos), vel_ratio=20, blending_type=BlendingType.DUPLICATE, blending_radius=0.1)
                 except Exception as e:
-                    self.get_logger().error('THERE ARE ISSUE WHEN EXECUTE WAYPOINT, PLEASE TRY AGAIN!')
+                    self.get_logger().error(f'EXECUTION ERROR: {e}')
                     is_cancel = True
                     break
 
@@ -383,14 +423,26 @@ class IndyROSConnector(Node):
                 feedback_msg.desired.positions = rads2degs(j_pos)
                 feedback_msg.actual.positions = self.joint_state_feedback.positions
                 goal_handle.publish_feedback(feedback_msg)
-                time.sleep(0.05) #20Hz
+                
+                # Bắn lệnh liên tục để Robot tự xếp hàng vào Queue
+                time.sleep(0.05)
 
-            time.sleep(0.5) # wait for robot stable
+            # --- KẾT THÚC VÒNG LẶP GỬI ĐIỂM ---
 
-            self.indy.stop_teleop()
-            time.sleep(0.3)
-            while self.indy.get_control_data()['op_state'] != OP_IDLE:
-                time.sleep(0.2)
+            if use_teleop:
+                time.sleep(0.5) # wait for robot stable
+                try:
+                    self.indy.stop_teleop()
+                except:
+                    pass
+                time.sleep(0.3)
+                while self.indy.get_control_data()['op_state'] != OP_IDLE:
+                    time.sleep(0.2)
+            else:
+                # Đợi robot chạy xong toàn bộ Queue của lệnh movej
+                time.sleep(0.5)
+                while self.indy.get_control_data()['op_state'] != OP_IDLE:
+                    time.sleep(0.2)
 
         if is_cancel:
             goal_handle.canceled()

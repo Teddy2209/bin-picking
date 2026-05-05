@@ -109,6 +109,8 @@ def launch_setup(context, *args, **kwargs):
         "publish_transforms_updates": True,
     }
 
+    sensors_3d_yaml = load_yaml("indy_moveit", "moveit_config/sensors_3d.yaml")
+
     # Start the actual move_group node/action server
     move_group_node = Node(
         package="moveit_ros_move_group",
@@ -122,6 +124,7 @@ def launch_setup(context, *args, **kwargs):
             trajectory_execution,
             moveit_controllers,
             planning_scene_monitor_parameters,
+            sensors_3d_yaml,
             {"use_sim_time": use_sim_time},
         ],
     )

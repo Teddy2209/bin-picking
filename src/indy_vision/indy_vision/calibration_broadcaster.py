@@ -57,14 +57,26 @@ class CalibrationBroadcaster(Node):
                 t2 = TransformStamped()
                 t2.header.stamp = now
                 t2.header.frame_id = 'link_tool0'  
-                t2.child_frame_id = 'link_camera'
-                t2.transform.translation.x = T[0, 3]
-                t2.transform.translation.y = T[1, 3]
-                t2.transform.translation.z = T[2, 3]
+                t2.child_frame_id = 'camera_link'
 
-                # Chuyển trực tiếp từ Ma trận quay (Rotation Matrix) sang Quaternion!
-                # CỰC KỲ QUAN TRỌNG: Tuyệt đối không qua trung gian Euler Angles vì sẽ bị lộn trục
-                q = quaternion_from_matrix(T[:3, :3])
+                T_offset = np.array([0.015 ,0.0 ,0.0])
+                t2.transform.translation.x = T[0, 3] + T_offset[0]
+                t2.transform.translation.y = T[1, 3] + T_offset[1]
+                t2.transform.translation.z = T[2, 3] + T_offset[2]
+
+                # --- BÙ TRỤC QUANG HỌC VỀ TRỤC ROBOT ---
+                # Ma trận JSON là của Optical Frame (Z đâm thẳng), ta cần xoay về Camera Link (X đâm thẳng)
+                # Tọa độ Optical sang Link: Quay -90 độ quanh Z, rồi -90 độ quanh X
+                R_opt_to_link = R.from_euler('zx', [-np.pi/2, -np.pi/2]).as_matrix()
+                
+                # T_cam_to_tool[:3, :3] là ma trận quay. Ta nhân thêm ma trận bù.
+                R_matrix = T[:3, :3] @ R_opt_to_link
+                
+                # Bù thêm góc quay 180 độ quanh trục X để lật ảnh (từ CDAB về lại ABCD)
+                R_x_180 = R.from_euler('x', np.pi).as_matrix()
+                R_corrected = R_matrix @ R_x_180
+                
+                q = quaternion_from_matrix(R_corrected)
                 
                 t2.transform.rotation.x = q[0]
                 t2.transform.rotation.y = q[1]
