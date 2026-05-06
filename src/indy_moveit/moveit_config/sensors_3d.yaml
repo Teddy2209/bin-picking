@@ -3,13 +3,13 @@ sensors:
 camera:
   sensor_plugin: occupancy_map_monitor/PointCloudOctomapUpdater
   point_cloud_topic: /camera/camera/depth/color/points
-  max_range: 2.0
-  point_subsample: 1
-  padding_offset: 0.001
-  padding_scale: 1.0
-  max_update_rate: 1.0
-  filtered_cloud_topic: filtered_cloud
+  max_range: 0.8 # BẮT BUỘC PHẢI CÓ .0 ĐỂ LÀ SỐ THỰC (DOUBLE)
+  point_subsample: 2  # Sample point cloud (every Nth point) like downsample in open3d
+  padding_offset: 0.002 # Padding offset for collision checking ( robot will keep 2 cm from object)
+  padding_scale: 1.0  # Scale factor for collision checking:  padding offset * padding scale = final padding offset
+  max_update_rate: 5.0  # Max update rate of the collision map (Hz) 5 times per second 
+  filtered_cloud_topic: filtered_cloud # topic to publish filtered cloud
 
-octomap_frame: link0
-octomap_resolution: 0.001
-max_range: 2.0
+octomap_frame: link0   # Frame of the octomap (Link base robot)
+octomap_resolution: 0.005 # resolution of the octomap 5 mm
+max_range: 2 # max range of the octomap (meter) 1200 mm like max range of sensor 

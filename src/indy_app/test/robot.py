@@ -45,10 +45,6 @@ def quaternion_to_euler(x, y, z, w):
 def rad2deg(rx,ry,rz    ):
     return rx * 180 / math.pi,ry * 180 / math.pi,rz * 180 / math.pi 
 
-
-
-
-
 class RobotManagerNode(Node):
     def __init__(self):
         super().__init__('robot_manager_node')
