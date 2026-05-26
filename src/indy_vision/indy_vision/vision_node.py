@@ -225,6 +225,8 @@ class VisionNode(Node):
         super().__init__('vision_node')
         self.tf_broadcaster = tf2_ros.TransformBroadcaster(self)
         self.task_pub = self.create_publisher(String, '/vision/pick_task', 10)
+        self.sub = self.create_subscription(String, '/robot/state', self.robot_state_callback, 10)
+        self.lock = False
 
     def broadcast_tf(self, name, pos, quat):
         t = TransformStamped()
@@ -234,7 +236,13 @@ class VisionNode(Node):
         t.transform.translation.x, t.transform.translation.y, t.transform.translation.z = pos
         t.transform.rotation.x, t.transform.rotation.y, t.transform.rotation.z, t.transform.rotation.w = quat
         self.tf_broadcaster.sendTransform(t)
-    
+    def robot_state_callback(self, msg):
+        self.get_logger().info(f"Robot state: {msg.data}")
+        if msg.data == "moving":
+            self.lock = True
+        else:
+            self.lock = False
+
 # ============================================================
 # AI ENGINE (Dual GPU)
 # ============================================================
@@ -597,7 +605,7 @@ class VisionUI:
                         best_target["safe_pos"] = smooth_pos  # Dùng cho viz
 
                     # Topic robot: chỉ gửi khi đã ổn định đủ frame
-                    if is_stable:
+                    if is_stable and self.node.lock == False:
                         c_name, c_pos, c_quat = self.stabilizer.get_confirmed()
                         self.node.task_pub.publish(String(data=json.dumps({
                             "name": c_name,
@@ -606,6 +614,8 @@ class VisionUI:
                             "dims": best_target["dims"],
                         })))
                         print(f"[STAB] >>> PUBLISHED task for {c_name}")
+                    else:
+                        print(f"[STAB] Not stable yet or robot is moving, not publishing.")
                 else:
                     self.stabilizer.reset()
 

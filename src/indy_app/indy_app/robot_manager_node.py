@@ -21,7 +21,7 @@ from std_msgs.msg import String, Bool
 import math
 import numpy as np
 from modbus_test import susgrip
-
+from neuromeka import IndyDCP3
 
 ROBOT_IP = "192.168.1.135" # Cập nhật IP bot của bạn
 
@@ -51,12 +51,13 @@ class RobotManagerNode(Node):
         super().__init__('robot_manager_node')
         self.gripper = susgrip()
         # Xóa cấu hình use_sim_time mặc định để hệ thống đồng bộ với thời gian thực tế của dòng code driver ROS
-        
+        self.robot = indyDCP3(ROBOT_IP, 0)
         # ROS 2 TF Init
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
         self.sub = self.create_subscription(String, '/vision/pick_task', self.vision_callback, 10)
-
+        self.pubstate = self.create_publisher(String, '/robot/state', 10)
+        self.robotstate = "idle"
         self.homepose = [287, -333, 292, 0, -180, 0]
         self.placepose = [0, 0, 0, 0, 0, 0] # Thay thế bằng tọa độ đặt của bạn
 
@@ -86,22 +87,40 @@ class RobotManagerNode(Node):
             tf_x = t.transform.translation.x
             tf_y = t.transform.translation.y
             tf_z = t.transform.translation.z
-            
+            Rx, Ry, Rz = quaternion_to_euler(
+                t.transform.rotation.x,
+                t.transform.rotation.y,
+                t.transform.rotation.z,
+                t.transform.rotation.w
+            )
             self.get_logger().info(f"Đã tra cứu TF cho mục tiêu: {target_frame} | Pos: [{tf_x:.3f}, {tf_y:.3f}, {tf_z:.3f}]")
             
             # Gọi pick_and_place với tọa độ từ TF
-            self.pick_and_place(tf_x, tf_y, tf_z)
-                
+            self.pick_and_place(tf_x, tf_y, tf_z, Rx, Ry, Rz)
+            self.robotstate = "moving"
+            self.pubstate.publish(String(data=self.robotstate))
         except (LookupException, ConnectivityException, ExtrapolationException) as ex:
             self.get_logger().error(f"Lỗi khi tra cứu TF cho mục tiêu '{target_frame}': {ex}")
         except Exception as e:
             self.get_logger().error(f"Lỗi xử lý JSON hoặc TF: {e}")
 
-    def pick_and_place(self, x, y, z):
+    def pick_and_place(self, x, y, z, rx, ry, rz):
         self.get_logger().info(f"Thực hiện Pick & Place tại: X={x:.2f}, Y={y:.2f}, Z={z:.2f}")
         print("x = ", x)
         print("y = ", y)
         print("z = ", z)
+        print("rx = ", rx)
+        print("ry = ", ry)
+        print("rz = ", rz)
+        robot_pose = [x, y, z, rx, ry, rz]
+        self.robot.moveL(self.homepose,vel_ratio=20) # Di chuyển về home trước khi đi tới điểm gắp
+        self.robot.moveL(robot_pose,vel_ratio=20)
+        self.gripper.close() # Đóng gripper để gắp
+        time.sleep(5) # Đợi một chút để đảm bảo gripper đã kẹp chắc
+
+
+
+        self.robot
         # Các lệnh movel() của bạn để đi tới điểm gắp
         # movel()
 
