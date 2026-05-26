@@ -265,7 +265,7 @@ class AIEngine:
         try:
             img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
             pil_img = Image.fromarray(img_rgb)
-            queries = "a rubik's cube . a screwdriver . a pair of scissors . a measuring tape . a white pen . a small yellow bottle . a pair of pliers  . a cylinder ."
+            queries = "a rubik's cube . pliers . blue block . box . beer can . bolt"
             with torch.cuda.device(0):
                 inputs = self.processor_DINO(images=pil_img, text=queries, return_tensors="pt").to('cuda:0')
                 with torch.no_grad(): outputs = self.DINO_model(**inputs)
@@ -311,6 +311,8 @@ class VisionUI:
         cfg.enable_stream(rs.stream.color, WIDTH, HEIGHT, rs.format.bgr8, FPS)
         cfg.enable_stream(rs.stream.depth, WIDTH, HEIGHT, rs.format.z16,  FPS)
         profile = self._pipeline.start(cfg)
+        color_sensor = profile.get_device().query_sensors()[1]
+        color_sensor.set_option(rs.option.enable_auto_exposure, 1) # Tắt auto-exposure
 
         self._rs_intrinsics = profile.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
         self._active_intrinsics = self._rs_intrinsics
@@ -617,7 +619,7 @@ class VisionUI:
                     color = np.random.randint(0, 255, 3).tolist()
                     np.random.set_state(state)
 
-                    display[obj["mask"]] = display[obj["mask"]] * 0.4 + np.array(color) * 0.6
+                    display[obj["mask"]] = display[obj["mask"]] * 0.2 + np.array(color) * 0.8
                     cv2.drawContours(display, [obj["contour"]], -1, color, 3)
 
                     box_color = (0, 255, 0) if is_target else (255, 255, 255)

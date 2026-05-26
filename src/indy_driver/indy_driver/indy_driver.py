@@ -201,25 +201,35 @@ class IndyROSConnector(Node):
 
             # start teleop
             try:
-                self.indy.stop_teleop()
-            except Exception:
-                pass
-            time.sleep(0.1)
-            self.indy.start_teleop(method=method) 
-            time.sleep(0.2)
-
-            # wait for telemode actually start
-            cur_time = time.time()
-            timeout = time.time()
-            while self.indy.get_control_data()['op_state'] != TELE_OP:
-                if (time.time() - cur_time) > 0.5:
-                    self.indy.start_teleop(method=method) 
-                    cur_time = time.time()
-                if (time.time() - timeout) > 3:
-                    response.success = False
-                    response.message = "TIMEOUT WHEN TRYING TO START TELEOP!!!"
-                    return response
-                time.sleep(0.2)
+                # Stop teleop if currently active to prevent conflicts
+                if self.indy.get_control_data()['op_state'] == TELE_OP:
+                    try:
+                        self.indy.stop_teleop()
+                        time.sleep(0.3)
+                    except Exception:
+                        pass
+                
+                # Start teleop
+                try:
+                    res = self.indy.start_teleop(method=method) 
+                    if res.get('code') != '0':
+                        raise Exception(res.get('msg'))
+                except Exception as start_err:
+                    if 'TELEOP_ALREADY' in str(start_err):
+                        pass
+                    else:
+                        raise start_err
+                
+                # Wait for the controller to fully transition to TELE_OP state
+                t_start = time.time()
+                while self.indy.get_control_data()['op_state'] != TELE_OP:
+                    time.sleep(0.01)
+                    if time.time() - t_start > 0.3:
+                        raise Exception("Timeout waiting for TELE_OP state to activate")
+            except Exception as e:
+                response.success = False
+                response.message = f"Failed to start teleop: {e}"
+                return response
             self.indy_msg_status = request.data
 
         response.success = True
@@ -238,7 +248,7 @@ class IndyROSConnector(Node):
         if self.previous_joint_trajectory_sub != joint_state_list[0]:
             # if TELE MODE
             if self.indy_msg_status == MSG_TELE_JOINT_ABS:
-                self.indy.movetelej_abs(jpos=rads2degs(joint_state_list[0]), vel_ratio=0.8, acc_ratio=7.0)
+                self.indy.movetelej_abs(jpos=rads2degs(joint_state_list[0]), vel_ratio=0.3, acc_ratio=0.3)
 
             self.previous_joint_trajectory_sub = joint_state_list[0]
     
@@ -374,23 +384,31 @@ class IndyROSConnector(Node):
             # Try to start teleop, if it fails, fallback to movej
             use_teleop = True
             try:
-                try:
-                    self.indy.stop_teleop()
-                except:
-                    pass
-                time.sleep(0.1)
-                self.indy.start_teleop(method=TELE_JOINT_ABSOLUTE) 
-                time.sleep(0.2)
+                # Stop teleop if currently active to prevent conflicts
+                if self.indy.get_control_data()['op_state'] == TELE_OP:
+                    try:
+                        self.indy.stop_teleop()
+                        time.sleep(0.3)
+                    except Exception:
+                        pass
                 
-                # wait for telemode actually start
-                cur_time = time.time()
+                # Start teleop
+                try:
+                    res = self.indy.start_teleop(method=TELE_JOINT_ABSOLUTE) 
+                    if res.get('code') != '0':
+                        raise Exception(res.get('msg'))
+                except Exception as start_err:
+                    if 'TELEOP_ALREADY' in str(start_err):
+                        pass
+                    else:
+                        raise start_err
+                
+                # Wait for the controller to fully transition to TELE_OP state
+                t_start = time.time()
                 while self.indy.get_control_data()['op_state'] != TELE_OP:
-                    if (time.time() - cur_time) > 0.5:
-                        self.indy.start_teleop(method=TELE_JOINT_ABSOLUTE)  
-                        cur_time = time.time()
-                    if (time.time() - cur_time) > 2.0: # Timeout
-                        raise Exception("Teleop start timeout")
-                    time.sleep(0.2)
+                    time.sleep(0.01)
+                    if time.time() - t_start > 0.3:
+                        raise Exception("Timeout waiting for TELE_OP state to activate")
             except Exception as e:
                 self.get_logger().warn(f"Teleop not supported, falling back to movej: {e}")
                 use_teleop = False
@@ -407,9 +425,10 @@ class IndyROSConnector(Node):
             for j_pos in execution_list:
                 try:
                     if use_teleop:
-                        self.indy.movetelej_abs(jpos=rads2degs(j_pos), vel_ratio=0.8, acc_ratio=7.0)
+                        self.indy.movetelej_abs(jpos=rads2degs(j_pos), vel_ratio=0.3, acc_ratio=0.3)
                     else:
                         # Dùng DUPLICATE + blending_radius để bo tròn quỹ đạo né vật cản
+                        print("using movej with blendingtype = DUPLICATE")
                         self.indy.movej(jtarget=rads2degs(j_pos), vel_ratio=20, blending_type=BlendingType.DUPLICATE, blending_radius=0.1)
                 except Exception as e:
                     self.get_logger().error(f'EXECUTION ERROR: {e}')
@@ -425,7 +444,6 @@ class IndyROSConnector(Node):
                 goal_handle.publish_feedback(feedback_msg)
                 
                 # Bắn lệnh liên tục để Robot tự xếp hàng vào Queue
-                time.sleep(0.05)
 
             # --- KẾT THÚC VÒNG LẶP GỬI ĐIỂM ---
 

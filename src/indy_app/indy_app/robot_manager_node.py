@@ -4,6 +4,12 @@ import rclpy
 VENV_PATH = os.path.expanduser("/home/apicoo-ai/pmg/bin_picking_ws/.venv/lib/python3.10/site-packages")
 if os.path.exists(VENV_PATH) and VENV_PATH not in sys.path:
     sys.path.append(VENV_PATH)
+
+# Đường dẫn workspace để có thể import các file code nằm ở thư mục gốc như modbus_test.py
+WORKSPACE_PATH = "/home/apicoo-ai/pmg/bin_picking_ws"
+if os.path.exists(WORKSPACE_PATH) and WORKSPACE_PATH not in sys.path:
+    sys.path.append(WORKSPACE_PATH)
+
 from rclpy.node import Node
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup,ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
@@ -14,12 +20,11 @@ from trajectory_msgs.msg import JointTrajectoryPoint, JointTrajectory
 from std_msgs.msg import String, Bool
 import math
 import numpy as np
+from modbus_test import susgrip
 
 
 ROBOT_IP = "192.168.1.135" # Cập nhật IP bot của bạn
-DROP_POS = [38, -339, 300.0, 0, -179.99, 0.0] # Toạ độ thả (mm, x,y,z,u,v,w)
-SWEEP_START = [38, -339, 300.0, 0, -179.99, 0.0]
-SWEEP_END   = [38, -339, 300.0, 0, -179.99, 0.0]
+
 
 def euler_to_quaternion(r, p, y): # rad
     cy, sy = np.cos(y * 0.5), np.sin(y * 0.5)
@@ -44,59 +49,62 @@ def quaternion_to_euler(x, y, z, w):
 class RobotManagerNode(Node):
     def __init__(self):
         super().__init__('robot_manager_node')
-        
+        self.gripper = susgrip()
         # Xóa cấu hình use_sim_time mặc định để hệ thống đồng bộ với thời gian thực tế của dòng code driver ROS
         
         # ROS 2 TF Init
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
-        self.create_timer(0.05, self.publish_robot_tf)
-        self.create_timer(5, self.get_info)
-        
-    def publish_robot_tf(self):
-        try:
-            # Lấy toạ độ TCP hiện tại từ robot (mm, deg)
-            p = self.tf_buffer.lookup_transform('link0', 'object_1', self.get_clock().now())
-            print(p)
+        self.sub = self.create_subscription(String, '/vision/pick_task', self.vision_callback, 10)
 
-            # 1. Tạo thông điệp lệnh
-            cmd = JointTrajectory()
-            cmd.header.stamp = self.get_clock().now().to_msg()
-            cmd.header.frame_id = 'link0' # Quan trọng: Frame gốc của robot
-            
-            # Tên các khớp (Thường là 6 khớp của Indy)
-            cmd.joint_names = ['joint0', 'joint1', 'joint2', 'joint3', 'joint4', 'joint5']
-            
-            # 2. Tạo điểm đến (Target Point)
-            point = JointTrajectoryPoint()
-            
-            # --- THAY THẾ PHẦN NÀY ---
-            # Giả sử bạn đã tính được góc mục tiêu (deg) là: target_angles = [0, 0, 90, 0, 0, 0]
-            # Hoặc bạn lấy từ Vision: target_angles = [vision_u, vision_v, vision_w, ...]
-            target_angles = [0.0, 0.0, 90.0, 0.0, 0.0, 0.0] 
-            
-            # Chuyển sang Rad và gán vào Point
-            point.positions = [math.radians(a) for a in target_angles]
-            
-            # Thời gian di chuyển (Giây)
-            point.time_from_start = self.get_clock().now() + Duration(sec=2)
-            # --------------------------
-            
-            cmd.points.append(point)
-            
-            # 3. Gửi lệnh
-            self.joint_trajectory_pub.publish(cmd)
+        self.homepose = [287, -333, 292, 0, -180, 0]
+        self.placepose = [0, 0, 0, 0, 0, 0] # Thay thế bằng tọa độ đặt của bạn
 
-        except: pass
+    def vision_callback(self, msg):
+        import json
+        import rclpy.time
+        from tf2_ros import LookupException, ConnectivityException, ExtrapolationException
         
-    def get_info(self):
         try:
-            # Dùng rclpy.time.Time() để lấy transform mới nhất thay vì dùng node clock the exact current time
-            # Tên gốc tay máy Indy là 'link0' thay vì 'base_link' hay 'world'
-            t = self.tf_buffer.lookup_transform('link0','link_object_0', rclpy.time.Time())
-            self.get_logger().info(f"Target Object Position (rel. to link0): X={t.transform.translation.x:.3f}, Y={t.transform.translation.y:.3f}, Z={t.transform.translation.z:.3f}")
+            # Lấy tên vật thể từ dữ liệu JSON do vision_node đẩy lên
+            task_data = json.loads(msg.data)
+            c_name = task_data.get('name')
+            
+            # Khởi tạo target_frame giống với lúc được broadcast ở vision_node
+            target_frame = f"target_{c_name}"
+            # Lấy TF tới base của robot (có thể đổi thành 'link0' nếu cấu hình của bạn là link0)
+            base_frame = "world"
+            
+            # Tra cứu toạ độ hiện tại từ TF
+            t = self.tf_buffer.lookup_transform(
+                base_frame,
+                target_frame,
+                rclpy.time.Time()
+            )
+            
+            # Lấy tọa độ x, y, z
+            tf_x = t.transform.translation.x
+            tf_y = t.transform.translation.y
+            tf_z = t.transform.translation.z
+            
+            self.get_logger().info(f"Đã tra cứu TF cho mục tiêu: {target_frame} | Pos: [{tf_x:.3f}, {tf_y:.3f}, {tf_z:.3f}]")
+            
+            # Gọi pick_and_place với tọa độ từ TF
+            self.pick_and_place(tf_x, tf_y, tf_z)
+                
+        except (LookupException, ConnectivityException, ExtrapolationException) as ex:
+            self.get_logger().error(f"Lỗi khi tra cứu TF cho mục tiêu '{target_frame}': {ex}")
         except Exception as e:
-            self.get_logger().warn(f"Waiting for TF: {e}", throttle_duration_sec=2.0)
+            self.get_logger().error(f"Lỗi xử lý JSON hoặc TF: {e}")
+
+    def pick_and_place(self, x, y, z):
+        self.get_logger().info(f"Thực hiện Pick & Place tại: X={x:.2f}, Y={y:.2f}, Z={z:.2f}")
+        print("x = ", x)
+        print("y = ", y)
+        print("z = ", z)
+        # Các lệnh movel() của bạn để đi tới điểm gắp
+        # movel()
+
 
 def main(args=None):
     rclpy.init(args=args)
