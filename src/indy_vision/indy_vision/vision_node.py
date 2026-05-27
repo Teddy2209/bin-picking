@@ -171,7 +171,17 @@ class PoseStabilizer:
             self._quat = np.array(quat)
             self._raw_pos = pos.copy()
             self._count = 0
+            self._confirmed_pos = None
             return False  # Chua on dinh
+
+        # Kiem tra xem vat co di chuyen lon hoac la vat the khac co cung ten khong (> 3cm)
+        if self._confirmed_pos is not None:
+            dist_to_confirmed = np.linalg.norm(pos - self._confirmed_pos)
+            if dist_to_confirmed > 0.03:  # > 3cm
+                self._confirmed_pos = None
+                self._pos = pos.copy()
+                self._raw_pos = pos.copy()
+                self._count = 0
 
         # EMA lam muot vi tri
         self._pos = self.alpha * pos + (1 - self.alpha) * self._pos
@@ -273,7 +283,7 @@ class AIEngine:
         try:
             img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
             pil_img = Image.fromarray(img_rgb)
-            queries = "a rubik's cube . pliers . blue block . box . beer can . bolt"
+            queries = "a rubik's cube . pliers . blue block . box . beer can . bolt . pen."
             with torch.cuda.device(0):
                 inputs = self.processor_DINO(images=pil_img, text=queries, return_tensors="pt").to('cuda:0')
                 with torch.no_grad(): outputs = self.DINO_model(**inputs)
@@ -285,7 +295,34 @@ class AIEngine:
                     if res_sam and res_sam[0].masks is not None:
                         masks = res_sam[0].masks.data.cpu().numpy()
                         for i, m in enumerate(masks):
-                            detected.append({"name": results["labels"][i], "mask": (m > 0.5)})
+                            score = float(results["scores"][i].cpu().item())
+                            detected.append({"name": results["labels"][i], "mask": (m > 0.5), "score": score})
+            
+            # Non-Maximum Suppression (NMS) to suppress highly overlapping masks (same object, different labels)
+            if detected:
+                # Sort descending by DINO confidence score
+                detected.sort(key=lambda x: x["score"], reverse=True)
+                keep_detected = []
+                for obj in detected:
+                    mask = obj["mask"]
+                    is_overlapping = False
+                    for kept in keep_detected:
+                        kept_mask = kept["mask"]
+                        intersection = np.logical_and(mask, kept_mask).sum()
+                        union = np.logical_or(mask, kept_mask).sum()
+                        iou = intersection / union if union > 0 else 0
+                        
+                        # Intersection over Minimum Area (IoMin) to catch full containment
+                        min_area = min(mask.sum(), kept_mask.sum())
+                        iomin = intersection / min_area if min_area > 0 else 0
+                        
+                        if iou > 0.4 or iomin > 0.6:  # Overlap > 40% IoU or > 60% containment
+                            is_overlapping = True
+                            break
+                    if not is_overlapping:
+                        keep_detected.append(obj)
+                detected = keep_detected
+                
             return detected
         except: return None
 

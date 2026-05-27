@@ -1,0 +1,84 @@
+
+
+===============================
+Error in 2D: 0.063291
+Error in 3D (Mean): 0.015170
+Error in 3D (Variance): 0.109387
+
+
+===============================
+Error in 2D: 0.060036
+Error in 3D (Mean): 0.025695
+Error in 3D (Variance): 0.124843
+
+
+===============================
+Error in 2D: 0.137428
+Error in 3D (Mean): 0.016723
+Error in 3D (Variance): 0.079575
+
+
+===============================
+Error in 2D: 0.059980
+Error in 3D (Mean): 0.017926
+Error in 3D (Variance): 0.203703
+
+
+===============================
+Error in 2D: 0.063312
+Error in 3D (Mean): 0.021535
+Error in 3D (Variance): 0.141972
+
+
+===============================
+Error in 2D: 0.071656
+Error in 3D (Mean): 0.024876
+Error in 3D (Variance): 0.194674
+
+
+===============================
+Error in 2D: 0.076225
+Error in 3D (Mean): 0.035636
+Error in 3D (Variance): 0.673612
+
+
+===============================
+Error in 2D: 0.113423
+Error in 3D (Mean): 0.040617
+Error in 3D (Variance): 0.272784
+
+
+===============================
+Error in 2D: 0.121318
+Error in 3D (Mean): 0.038897
+Error in 3D (Variance): 0.283086
+
+
+===============================
+Error in 2D: 0.122445
+Error in 3D (Mean): 0.038024
+Error in 3D (Variance): 0.285414
+
+
+===============================
+Error in 2D: 0.100014
+Error in 3D (Mean): 0.039847
+Error in 3D (Variance): 0.337378
+
+
+===============================
+Error in 2D: 0.100014
+Error in 3D (Mean): 0.039847
+Error in 3D (Variance): 0.337378
+
+
+===============================
+Error in 2D: 0.054253
+Error in 3D (Mean): 0.035548
+Error in 3D (Variance): 0.178597
+
+
+===============================
+Error in 2D: 0.059464
+Error in 3D (Mean): 0.035516
+Error in 3D (Variance): 0.184632

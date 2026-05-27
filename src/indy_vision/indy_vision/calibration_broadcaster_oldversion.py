@@ -40,7 +40,7 @@ class CalibrationBroadcaster(Node):
             t1.child_frame_id = 'link_tool0'
             t1.transform.translation.x = 0.0
             t1.transform.translation.y = 0.0
-            t1.transform.translation.z = 0.257 # 180mm
+            t1.transform.translation.z = 0.186 # 180mm
             t1.transform.rotation.w = 1.0
             transforms.append(t1)
         except Exception as e:

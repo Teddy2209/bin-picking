@@ -1,3 +1,4 @@
+from numpy import rad2deg
 import time, sys, os
 import rclpy
 # Đường dẫn môi trường ảo tuyệt đối để đảm bảo ổn định khi chạy ROS 2
@@ -21,11 +22,9 @@ from std_msgs.msg import String, Bool
 import math
 import numpy as np
 from modbus_test import susgrip
-from neuromeka import IndyDCP3
+from neuromeka import IndyDCP3,OpState
 
-ROBOT_IP = "192.168.1.135" # Cập nhật IP bot của bạn
-
-
+ROBOT_IP = "192.168.1.8" # Cập nhật IP bot của bạn
 def euler_to_quaternion(r, p, y): # rad
     cy, sy = np.cos(y * 0.5), np.sin(y * 0.5)
     cp, sp = np.cos(p * 0.5), np.sin(p * 0.5)
@@ -33,39 +32,80 @@ def euler_to_quaternion(r, p, y): # rad
     return [sr*cp*cy - cr*sp*sy, cr*sp*cy + sr*cp*sy, cr*cp*sy - sr*sp*cy, cr*cp*cy + sr*sp*sy]
 
 def quaternion_to_euler(x, y, z, w):
-    # Trả về Rx, Ry, Rz (Rad)
+    # 1. Tính toán theo công thức chuẩn (nghiệm ZYX)
     t0 = +2.0 * (w * x + y * z)
     t1 = +1.0 - 2.0 * (x * x + y * y)
     roll_x = math.atan2(t0, t1)
+    
     t2 = +2.0 * (w * y - z * x)
     t2 = +1.0 if t2 > +1.0 else t2
     t2 = -1.0 if t2 < -1.0 else t2
     pitch_y = math.asin(t2)
+    
     t3 = +2.0 * (w * z + x * y)
     t4 = +1.0 - 2.0 * (y * y + z * z)
     yaw_z = math.atan2(t3, t4)
-    return roll_x, pitch_y, yaw_z
+    
+    # 2. Tìm nghiệm tương đương có pitch (Ry) gần -180 độ (tức là -pi rad)
+    # Vì robot Indy luôn có tay gắp hướng xuống, Ry ở tư thế home là -180 độ
+    roll_alt = roll_x - math.pi if roll_x > 0 else roll_x + math.pi
+    if pitch_y > 0:
+        pitch_alt = math.pi - pitch_y
+    else:
+        pitch_alt = -math.pi - pitch_y
+    yaw_alt = yaw_z - math.pi if yaw_z > 0 else yaw_z + math.pi
+    
+    # Chuẩn hóa yaw_alt (Rz) về khoảng [-pi/2, pi/2] cho tay gắp đối xứng hai ngón susgrip
+    # (Nếu xoay rz lệch 180 độ thì vẫn gắp giống nhau, giúp Joint 6 không bị xoay quá giới hạn)
+    yaw_alt_deg = yaw_alt * 180.0 / math.pi
+    while yaw_alt_deg > 90.0:
+        yaw_alt_deg -= 180.0
+    while yaw_alt_deg < -90.0:
+        yaw_alt_deg += 180.0
+    yaw_alt = yaw_alt_deg * math.pi / 180.0
+    
+    # Chọn bộ góc có pitch gần -pi (-180 độ) nhất
+    if abs(pitch_alt - (-math.pi)) < abs(pitch_y - (-math.pi)):
+        return roll_alt, pitch_alt, yaw_alt
+    else:
+        # Chuẩn hóa cả yaw_z cho nghiệm gốc nếu chọn
+        yaw_z_deg = yaw_z * 180.0 / math.pi
+        while yaw_z_deg > 90.0:
+            yaw_z_deg -= 180.0
+        while yaw_z_deg < -90.0:
+            yaw_z_deg += 180.0
+        yaw_z = yaw_z_deg * math.pi / 180.0
+        return roll_x, pitch_y, yaw_z
 
+def rad2deg(rx,ry,rz):
+    return rx*180/math.pi,ry*180/math.pi,rz*180/math.pi
 class RobotManagerNode(Node):
     def __init__(self):
         super().__init__('robot_manager_node')
         self.gripper = susgrip()
         # Xóa cấu hình use_sim_time mặc định để hệ thống đồng bộ với thời gian thực tế của dòng code driver ROS
-        self.robot = indyDCP3(ROBOT_IP, 0)
+        self.robot = IndyDCP3(ROBOT_IP, 0)
         # ROS 2 TF Init
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
         self.sub = self.create_subscription(String, '/vision/pick_task', self.vision_callback, 10)
         self.pubstate = self.create_publisher(String, '/robot/state', 10)
         self.robotstate = "idle"
-        self.homepose = [287, -333, 292, 0, -180, 0]
-        self.placepose = [0, 0, 0, 0, 0, 0] # Thay thế bằng tọa độ đặt của bạn
+        self.pubstate.publish(String(data=self.robotstate))
+        self.homepose = [350,-200,300,0 ,-180, 0] 
+        self.placepose = [350,100,150,0 ,-180, 0] 
+        self.startpose = [350,-365,300,0 ,-180, 0] 
+
+
 
     def vision_callback(self, msg):
         import json
         import rclpy.time
         from tf2_ros import LookupException, ConnectivityException, ExtrapolationException
-        
+        if self.robotstate == "moving":
+            return 
+        self.robotstate = "moving"
+        self.pubstate.publish(String(data=self.robotstate))
         try:
             # Lấy tên vật thể từ dữ liệu JSON do vision_node đẩy lên
             task_data = json.loads(msg.data)
@@ -97,33 +137,50 @@ class RobotManagerNode(Node):
             
             # Gọi pick_and_place với tọa độ từ TF
             self.pick_and_place(tf_x, tf_y, tf_z, Rx, Ry, Rz)
-            self.robotstate = "moving"
-            self.pubstate.publish(String(data=self.robotstate))
+
         except (LookupException, ConnectivityException, ExtrapolationException) as ex:
             self.get_logger().error(f"Lỗi khi tra cứu TF cho mục tiêu '{target_frame}': {ex}")
         except Exception as e:
             self.get_logger().error(f"Lỗi xử lý JSON hoặc TF: {e}")
 
     def pick_and_place(self, x, y, z, rx, ry, rz):
-        self.get_logger().info(f"Thực hiện Pick & Place tại: X={x:.2f}, Y={y:.2f}, Z={z:.2f}")
-        print("x = ", x)
-        print("y = ", y)
-        print("z = ", z)
-        print("rx = ", rx)
-        print("ry = ", ry)
-        print("rz = ", rz)
+
+        self.robot.movel(self.startpose, vel_ratio=10)
+        self.robot.wait_for_operation_state(wait_op_state=OpState.IDLE)
+        
+        rx,ry,rz =rad2deg(rx,ry,rz)
+        x,y,z = x*1000, y*1000, z*1000-15
+        if z <=10: z=10
         robot_pose = [x, y, z, rx, ry, rz]
-        self.robot.moveL(self.homepose,vel_ratio=20) # Di chuyển về home trước khi đi tới điểm gắp
-        self.robot.moveL(robot_pose,vel_ratio=20)
-        self.gripper.close() # Đóng gripper để gắp
-        time.sleep(5) # Đợi một chút để đảm bảo gripper đã kẹp chắc
+        print(robot_pose,flush=True)
+        self.gripper.send_modbus_rtu_frame(100)
+
+        self.robot.movel(robot_pose,vel_ratio=10)
+        self.robot.wait_for_operation_state(wait_op_state=OpState.IDLE)
+
+        self.gripper.send_modbus_rtu_frame(30)
+        time.sleep(2)
+
+        current = np.array(self.robot.get_robot_data()['p'])
+        current[2] = 250
+        print(current,flush =True)
+
+        self.robot.movel(current,vel_ratio=10)
+        self.robot.wait_for_operation_state(wait_op_state=OpState.IDLE)
+
+        self.robot.movel(self.startpose,vel_ratio=10)
+        self.robot.wait_for_operation_state(wait_op_state=OpState.IDLE)
+
+        self.robot.movel(self.placepose,vel_ratio=10)
+        self.robot.wait_for_operation_state(wait_op_state=OpState.IDLE)
+        self.gripper.send_modbus_rtu_frame(100)
+
+        self.robot.movel(self.startpose,vel_ratio=10)
+        self.robot.wait_for_operation_state(wait_op_state=OpState.IDLE)
 
 
-
-        self.robot
-        # Các lệnh movel() của bạn để đi tới điểm gắp
-        # movel()
-
+        self.robotstate = "idle"
+        self.pubstate.publish(String(data=self.robotstate))
 
 def main(args=None):
     rclpy.init(args=args)
@@ -135,6 +192,7 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
+        node.robot.close()
         node.destroy_node()
         rclpy.shutdown()
 

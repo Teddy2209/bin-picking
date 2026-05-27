@@ -1,0 +1,19 @@
+# --- AI & Computer Vision ---
+numpy==1.26.4
+opencv-python
+scipy
+torch
+torchvision
+torchaudio
+ultralytics
+transformers
+Pillow
+pyrealsense2
+
+# --- Robot SDK & Communication ---
+neuromeka
+grpcio
+grpcio-tools
+
+# --- Utilities ---
+pyyaml

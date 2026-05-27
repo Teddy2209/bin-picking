@@ -1,0 +1,4 @@
+(cd to build then paste, after that we can run the camera using ./main in build folder)
+
+export LD_LIBRARY_PATH=/home/apicoo-ai/giang_ws/opencv/install/lib:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=/home/apicoo-ai/pmg/Scan3d_API_pmg/irovi3D_3D_scanner_api/libs:$LD_LIBRARY_PATH
