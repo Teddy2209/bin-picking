@@ -59,8 +59,8 @@ Neuromeka_docs.txt
 Neuromeka_docs.py
 
 
-/home/apicoo-ai/pmg/bin_picking_ws/src/indy_vision/indy_vision/data_calib_intel/images/
-/home/apicoo-ai/pmg/bin_picking_ws/src/indy_vision/indy_vision/data_calib_intel/poses/
-/home/apicoo-ai/pmg/bin_picking_ws/Neuromeka_docs.py
-/home/apicoo-ai/pmg/bin_picking_ws/Neuromeka_docs.py
-/home/apicoo-ai/pmg/bin_picking_ws/ros2_indy/
+pmg/bin_picking_ws/src/indy_vision/indy_vision/data_calib_intel/images/
+pmg/bin_picking_ws/src/indy_vision/indy_vision/data_calib_intel/poses/
+pmg/bin_picking_ws/Neuromeka_docs.py
+pmg/bin_picking_ws/Neuromeka_docs.py
+pmg/bin_picking_ws/ros2_indy/
